@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>TODO List</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f2f2f2;
+      margin: 0;
+      padding: 20px;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 20px;
+      border-radius: 5px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    h1, h2 { text-align: center; }
+    form { margin-bottom: 20px; text-align: center; }
+    input[type="text"] { padding: 8px; width: 200px; margin-right: 10px; }
+    button { padding: 8px 12px; }
+    .list-item {
+      border-bottom: 1px solid #ddd;
+      padding: 10px;
+      cursor: pointer;
+    }
+    .list-item:hover { background: #f9f9f9; }
+    .task-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #ddd;
+      padding: 10px 0;
+    }
+    .completed { text-decoration: line-through; color: gray; }
+    .actions button { margin-left: 10px; }
+    #back-to-projects { margin-bottom: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>TODO List</h1>
+
+    <!-- 项目列表 -->
+    <section id="projects-section">
+      <h2>项目列表</h2>
+      <form id="project-form">
+        <input type="text" id="project-title" placeholder="新项目标题" required>
+        <button type="submit">添加项目</button>
+      </form>
+      <div id="projects-list"></div>
+    </section>
+
+    <!-- 任务列表 -->
+    <section id="tasks-section" style="display:none;">
+      <h2 id="current-project-name">任务列表</h2>
+      <button id="back-to-projects">返回项目列表</button>
+      <form id="task-form">
+        <input type="text" id="task-title" placeholder="新任务标题" required>
+        <button type="submit">添加任务</button>
+      </form>
+      <div id="tasks-list"></div>
+    </section>
+  </div>
+
+  <script>
+    const projectsListDiv = document.getElementById('projects-list');
+    const tasksSection = document.getElementById('tasks-section');
+    const projectsSection = document.getElementById('projects-section');
+    const currentProjectName = document.getElementById('current-project-name');
+    let currentProject = null;
+
+    // 加载所有项目
+    function loadProjects() {
+      fetch('/projects')
+        .then(response => response.json())
+        .then(data => {
+          projectsListDiv.innerHTML = '';
+          data.forEach(project => {
+            const div = document.createElement('div');
+            div.className = 'list-item';
+            div.textContent = project.title;
+            div.addEventListener('click', () => {
+              currentProject = project;
+              currentProjectName.textContent = '任务列表 - ' + project.title;
+              loadTasks(project.title);
+              projectsSection.style.display = 'none';
+              tasksSection.style.display = 'block';
+            });
+            projectsListDiv.appendChild(div);
+          });
+        })
+        .catch(error => console.error('加载项目失败:', error));
+    }
+
+    // 加载任务
+    function loadTasks(projectTitle) {
+      fetch(`/projects/${encodeURIComponent(projectTitle)}/tasks`)
+        .then(response => response.json())
+        .then(data => {
+          const tasksListDiv = document.getElementById('tasks-list');
+          tasksListDiv.innerHTML = '';
+          data.forEach(task => {
+            const taskDiv = document.createElement('div');
+            taskDiv.className = 'task-item';
+
+            const titleSpan = document.createElement('span');
+            titleSpan.textContent = task.title;
+            if (task.done) {
+              titleSpan.classList.add('completed');
+            }
+            taskDiv.appendChild(titleSpan);
+
+            const actionsDiv = document.createElement('div');
+            actionsDiv.className = 'actions';
+
+            // 完成/撤销按钮
+            const completeBtn = document.createElement('button');
+            completeBtn.textContent = task.done ? '撤销' : '完成';
+            completeBtn.addEventListener('click', () => {
+              task.done ? undoTask(projectTitle, task.id) : completeTask(projectTitle, task.id);
+            });
+            actionsDiv.appendChild(completeBtn);
+
+            // 删除按钮
+            const deleteBtn = document.createElement('button');
+            deleteBtn.textContent = '删除';
+            deleteBtn.addEventListener('click', () => deleteTask(projectTitle, task.id));
+            actionsDiv.appendChild(deleteBtn);
+
+            taskDiv.appendChild(actionsDiv);
+            tasksListDiv.appendChild(taskDiv);
+          });
+        })
+        .catch(error => console.error('加载任务失败:', error));
+    }
+
+    // 添加项目
+    document.getElementById('project-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const title = document.getElementById('project-title').value.trim();
+      if (!title) return alert('请输入项目名称');
+
+      fetch('/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title })
+      })
+      .then(response => response.json())
+      .then(() => {
+        document.getElementById('project-title').value = '';
+        loadProjects();
+      })
+      .catch(error => console.error('添加项目失败:', error));
+    });
+
+    // 添加任务
+    document.getElementById('task-form').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const title = document.getElementById('task-title').value.trim();
+      if (!title) return alert('请输入任务名称');
+
+      fetch(`/projects/${encodeURIComponent(currentProject.title)}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title })
+      })
+      .then(response => response.json())
+      .then(() => {
+        document.getElementById('task-title').value = '';
+        loadTasks(currentProject.title);
+      })
+      .catch(error => console.error('添加任务失败:', error));
+    });
+
+    // 完成任务
+    function completeTask(projectTitle, taskId) {
+      fetch(`/projects/${encodeURIComponent(projectTitle)}/tasks/${taskId}/complete`, { method: 'PUT' })
+        .then(() => loadTasks(projectTitle))
+        .catch(error => console.error('完成任务失败:', error));
+    }
+
+    // 撤销任务完成
+    function undoTask(projectTitle, taskId) {
+      fetch(`/projects/${encodeURIComponent(projectTitle)}/tasks/${taskId}/complete`, { method: 'DELETE' })
+        .then(() => loadTasks(projectTitle))
+        .catch(error => console.error('撤销任务失败:', error));
+    }
+
+    // 删除任务
+    function deleteTask(projectTitle, taskId) {
+      fetch(`/projects/${encodeURIComponent(projectTitle)}/tasks/${taskId}`, { method: 'DELETE' })
+        .then(() => loadTasks(projectTitle))
+        .catch(error => console.error('删除任务失败:', error));
+    }
+
+    // 返回项目列表
+    document.getElementById('back-to-projects').addEventListener('click', () => {
+      tasksSection.style.display = 'none';
+      projectsSection.style.display = 'block';
+      loadProjects();
+    });
+
+    // 初始加载
+    loadProjects();
+  </script>
+</body>
+</html>
